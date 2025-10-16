@@ -1,5 +1,6 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:chatwoot/services/notification_channels.dart';
 import '/screens/conversations/controllers/chat.dart';
 import '/screens/conversations/views/chat.dart';
 import '/imports.dart';
@@ -118,13 +119,18 @@ class NotificationService extends GetxService {
   Future<NotificationService> init() async {
     await _ensurePermission();
 
-    await _notificationsPlugin.initialize(
-      InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-        iOS: DarwinInitializationSettings(),
-      ),
+    await configureChatwootLocalNotifications(
+      _notificationsPlugin,
       onDidReceiveNotificationResponse: _onDidReceiveNotificationResponse,
     );
+
+    if (GetPlatform.isIOS || GetPlatform.isMacOS) {
+      await _firebaseMessaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
 
     if (!GetPlatform.isDesktop) {
       _initialMessage = await _firebaseMessaging.getInitialMessage();
@@ -155,7 +161,7 @@ class NotificationService extends GetxService {
       info.id,
       info.push_message_title,
       info.notification_type.name,
-      NotificationDetails(),
+      chatwootNotificationDetails,
       payload: jsonEncode(info.toJson()),
     );
   }
