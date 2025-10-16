@@ -97,9 +97,9 @@ class NotificationService extends GetxService {
     }
 
     _onMessageSubscription =
-        FirebaseMessaging.onMessageOpenedApp.listen(_onMessage);
+        FirebaseMessaging.onMessage.listen(_onMessage);
     _onMessageOpenedAppSubscription =
-        FirebaseMessaging.onMessage.listen(_onMessageOpenedApp);
+        FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
   }
 
   @override
