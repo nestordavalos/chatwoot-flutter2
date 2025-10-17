@@ -5,6 +5,7 @@ import 'package:chatwoot/models/notification.dart';
 import 'package:chatwoot/services/notification_channels.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:logger/logger.dart';
 
@@ -34,6 +35,9 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   try {
     final info = NotificationInfo.fromJson(message.data);
+
+    DartPluginRegistrant.ensureInitialized();
+
     final plugin = FlutterLocalNotificationsPlugin();
 
     await configureChatwootLocalNotifications(plugin);
