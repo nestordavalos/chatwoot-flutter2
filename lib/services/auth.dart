@@ -54,8 +54,10 @@ class AuthService extends GetxService {
 
     if (!isNullOrEmpty(_getNotification.token.value)) {
       _logger.d('deleteSubscription');
-      _getApi.notifications.deleteSubscription(
-        push_token: _getNotification.token.value!,
+      unawaited(
+        _getApi.notifications.deleteSubscription(
+          push_token: _getNotification.token.value!,
+        ),
       );
     }
 
@@ -64,6 +66,8 @@ class AuthService extends GetxService {
 
       // reset profile
       profile.value = null;
+
+      _getNotification.handleLogout();
 
       // TODO: maybe delete {host} only
       CookieManager.instance().deleteAllCookies();

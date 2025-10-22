@@ -122,6 +122,12 @@ NotificationSubscription.last
    - Verifica que el servidor Chatwoot pueda conectarse a FCM (errores `Firebase::Error` en los logs).
    - Comprueba que el dispositivo tenga conexión a Internet y que no haya bloqueadores de batería/ahorro de energía activos.
 
+> **¿Sin conexión temporal o la app estuvo cerrada?**
+> El servicio de notificaciones guarda el token y vuelve a intentar el
+> registro con Chatwoot cada pocos minutos hasta que el backend confirme la
+> suscripción. El estado se conserva en `SharedPreferences`, por lo que el
+> reintento se ejecuta en cuanto el usuario vuelva a abrir la aplicación.
+
 ---
 
 ## 6. Resolución de problemas comunes

@@ -16,6 +16,16 @@ class NotificationService extends GetxService {
   final enabled = PersistentRxBool(false, key: 'notification:enabled');
   final token = PersistentRx<String?>(null, key: 'notification:token');
   final authorizationStatus = AuthorizationStatus.notDetermined.obs;
+  final registrationPending =
+      PersistentRxBool(false, key: 'notification:registrationPending');
+  final lastRegisteredToken =
+      PersistentRx<String?>(null, key: 'notification:lastRegisteredToken');
+  final lastRegisteredAccountId = PersistentRxCustom<int?>(
+    null,
+    key: 'notification:lastRegisteredAccountId',
+    encode: (value) => value?.toString(),
+    decode: (value) => int.tryParse(value),
+  );
 
   RemoteMessage? _initialMessage;
   StreamSubscription<bool>? _enabledChangeSubscription;
@@ -26,6 +36,8 @@ class NotificationService extends GetxService {
   EventListener<ConversationInfo>? _conversationReadListener;
   EventListener<NotificationInfo>? _notificationCreatedListener;
   EventListener<int>? _notificationDeletedListener;
+  Timer? _registrationRetryTimer;
+  bool _isRegisteringDevice = false;
 
   ApiService? _api;
   ApiService get _getApi {
@@ -56,10 +68,18 @@ class NotificationService extends GetxService {
 
     _getAuth.isSignedIn.listen((next) {
       if (!next) {
+        _logger.i('auth signed out; clearing notification session');
+        _cancelRegistrationRetry();
+        registrationPending.value = false;
+        lastRegisteredToken.value = null;
+        lastRegisteredAccountId.value = null;
         token.value = null;
         return;
       }
+      _logger.i('auth signed in; ensuring notification session');
+      registrationPending.value = true;
       _ensurePermission();
+      saveDeviceDetails();
     });
 
     _conversationReadListener = _getRealtime.events.on(
@@ -79,17 +99,32 @@ class NotificationService extends GetxService {
 
     _enabledChangeSubscription = enabled.listen((next) {
       _logger.i('enabled changed => $next');
-      if (next) _ensurePermission();
+      if (next) {
+        registrationPending.value = true;
+        _ensurePermission();
+      }
     });
 
     _tokenChangeSubscription = token.listen((next) {
-      if (isNullOrEmpty(next)) return;
+      if (isNullOrEmpty(next)) {
+        _cancelRegistrationRetry();
+        registrationPending.value = false;
+        return;
+      }
+
+      if (next != lastRegisteredToken.value) {
+        registrationPending.value = true;
+      }
+
       saveDeviceDetails();
     });
 
     if (!GetPlatform.isDesktop) {
       _tokenRefreshSubscription = _firebaseMessaging.onTokenRefresh.listen(
-        (next) => token.value = next,
+        (next) {
+          registrationPending.value = true;
+          token.value = next;
+        },
         onError: (error, stackTrace) {
           _logger.e(error, stackTrace: stackTrace);
         },
@@ -112,6 +147,7 @@ class NotificationService extends GetxService {
     _conversationReadListener?.cancel();
     _notificationCreatedListener?.cancel();
     _notificationDeletedListener?.cancel();
+    _cancelRegistrationRetry();
 
     super.onClose();
   }
@@ -138,6 +174,12 @@ class NotificationService extends GetxService {
         _logger.i('getInitialMessage: ${jsonEncode(_initialMessage!.toMap())}');
       }
     }
+
+    if (_getAuth.isSignedIn.value) {
+      registrationPending.value = true;
+    }
+
+    await saveDeviceDetails(force: registrationPending.value);
 
     return this;
   }
@@ -255,13 +297,86 @@ class NotificationService extends GetxService {
     _logger.d('token:${token.value}');
   }
 
-  Future<void> saveDeviceDetails() async {
+  void handleLogout() {
+    _cancelRegistrationRetry();
+    registrationPending.value = false;
+    lastRegisteredToken.value = null;
+    lastRegisteredAccountId.value = null;
+  }
+
+  Future<void> saveDeviceDetails({bool force = false}) async {
+    if (_isRegisteringDevice) {
+      _logger.d('saveDeviceDetails() => already running');
+      return;
+    }
+
+    if (!_getAuth.isSignedIn.value) {
+      _logger.w('saveDeviceDetails() => skipped (not signed in)');
+      return;
+    }
+
     if (isNullOrEmpty(token.value)) {
       _logger.w('saveDeviceDetails() => token is empty');
       return;
     }
-    _logger.d('saveDeviceDetails()');
-    await _getApi.notifications.saveDeviceDetails(push_token: token.value!);
-    _logger.d('saveDeviceDetails() => successful');
+
+    final accountId = _getAuth.profile.value?.account_id;
+    if (accountId == null) {
+      _logger.w('saveDeviceDetails() => account_id is null');
+      return;
+    }
+
+    if (!force &&
+        !registrationPending.value &&
+        lastRegisteredToken.value == token.value &&
+        lastRegisteredAccountId.value == accountId) {
+      _logger.d('saveDeviceDetails() => already registered');
+      return;
+    }
+
+    registrationPending.value = true;
+    _isRegisteringDevice = true;
+
+    try {
+      _logger.d('saveDeviceDetails()');
+      final result =
+          await _getApi.notifications.saveDeviceDetails(push_token: token.value!);
+      if (result.isError()) {
+        final error = result.exceptionOrNull();
+        _logger.e(
+          'saveDeviceDetails() => failed',
+          error,
+          stackTrace: error is Error ? error.stackTrace : null,
+        );
+        _scheduleRegistrationRetry();
+        return;
+      }
+
+      lastRegisteredToken.value = token.value;
+      lastRegisteredAccountId.value = accountId;
+      registrationPending.value = false;
+      _cancelRegistrationRetry();
+      _logger.d('saveDeviceDetails() => successful');
+    } finally {
+      _isRegisteringDevice = false;
+    }
+  }
+
+  void _scheduleRegistrationRetry() {
+    if (_registrationRetryTimer?.isActive ?? false) {
+      return;
+    }
+
+    _registrationRetryTimer = Timer(const Duration(minutes: 5), () {
+      _registrationRetryTimer = null;
+      if (registrationPending.value) {
+        saveDeviceDetails();
+      }
+    });
+  }
+
+  void _cancelRegistrationRetry() {
+    _registrationRetryTimer?.cancel();
+    _registrationRetryTimer = null;
   }
 }
