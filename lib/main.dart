@@ -11,6 +11,8 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:logger/logger.dart' as logger;
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'package:chatwoot/services/notification_background.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 Future<void> loadEnvironments() async {
   var environments = kDebugMode
@@ -42,6 +44,10 @@ void main() async {
     // firebase
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
+    );
+
+    FirebaseMessaging.onBackgroundMessage(
+      firebaseMessagingBackgroundHandler,
     );
 
     // environments
